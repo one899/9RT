@@ -61,13 +61,19 @@ jobs:
       - name: Fix missing Kconfig
         run: |
           cd kernel_source
-          while IFS= read -r line; do
-            path=$(echo "$line" | sed -n 's/.*source "\(kernel\/[^"]*\)".*/\1/p')
-            if [ -n "$path" ] && [ ! -f "$path" ]; then
-              echo "Commenting out missing: $path"
-              sed -i "s|^source \"${path}\"|# source \"${path}\"|" init/Kconfig
-            fi
-          done < init/Kconfig
+          find . -name "Kconfig" -type f | while read kconfig_file; do
+            while IFS= read -r line; do
+              path=$(echo "$line" | sed -n 's/.*source "\([^"]*Kconfig\)".*/\1/p')
+              if [ -n "$path" ]; then
+                dir=$(dirname "$kconfig_file")
+                full_path="$dir/$path"
+                if [ ! -f "$full_path" ]; then
+                  echo "Commenting out missing: $full_path (in $kconfig_file)"
+                  sed -i "s|^source \"${path}\"|# source \"${path}\"|" "$kconfig_file"
+                fi
+              fi
+            done < "$kconfig_file"
+          done
 
       - name: Build kernel
         run: |
