@@ -57,11 +57,19 @@ jobs:
       - name: Fix missing Kconfig
         run: |
           cd kernel_source
-          sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|' init/Kconfig
-          sed -i 's|source "kernel/tuning/Kconfig"|# source "kernel/tuning/Kconfig"|' init/Kconfig
-          sed -i 's|source "kernel/uad/Kconfig"|# source "kernel/uad/Kconfig"|' init/Kconfig
-          sed -i 's|source "kernel/special_opt/Kconfig"|# source "kernel/special_opt/Kconfig"|' init/Kconfig
-          sed -i 's|source "arch/arm64/kernel/secureguard/Kconfig"|# source "arch/arm64/kernel/secureguard/Kconfig"|' arch/arm64/Kconfig
+          find . -name "Kconfig" -type f | while read kconfig_file; do
+            dir=$(dirname "$kconfig_file")
+            while IFS= read -r line; do
+              path=$(echo "$line" | sed -n 's/.*source "\([^"]*\)".*/\1/p')
+              if [ -n "$path" ]; then
+                full_path="$dir/$path"
+                if [ ! -f "$full_path" ]; then
+                  echo "Commenting out missing: $full_path"
+                  sed -i "s|^source \"${path}\"|# source \"${path}\"|" "$kconfig_file"
+                fi
+              fi
+            done < "$kconfig_file"
+          done
 
       - name: Build kernel
         run: |
