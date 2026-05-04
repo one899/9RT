@@ -61,9 +61,13 @@ jobs:
       - name: Fix missing Kconfig
         run: |
           cd kernel_source
-          sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|' init/Kconfig
-          sed -i 's|source "kernel/tuning/Kconfig"|# source "kernel/tuning/Kconfig"|' init/Kconfig
-          sed -i 's|source "kernel/uad/Kconfig"|# source "kernel/uad/Kconfig"|' init/Kconfig
+          while IFS= read -r line; do
+            path=$(echo "$line" | sed -n 's/.*source "\(kernel\/[^"]*\)".*/\1/p')
+            if [ -n "$path" ] && [ ! -f "$path" ]; then
+              echo "Commenting out missing: $path"
+              sed -i "s|^source \"${path}\"|# source \"${path}\"|" init/Kconfig
+            fi
+          done < init/Kconfig
 
       - name: Build kernel
         run: |
