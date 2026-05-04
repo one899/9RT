@@ -27,7 +27,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y git curl flex bison build-essential libssl-dev bc python3
+          sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
+            gcc-aarch64-linux-gnu
 
       - name: Clone kernel source
         run: |
