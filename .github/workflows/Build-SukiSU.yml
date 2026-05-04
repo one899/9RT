@@ -29,14 +29,12 @@ jobs:
           sudo apt update && sudo apt upgrade -y
           sudo apt install -y git curl flex bison build-essential libssl-dev bc python3
 
-      # ========== 拉取一加9RT(martini)专用内核源码 ==========
       - name: Clone kernel source
         run: |
           git clone --depth=1 -b oneplus/sm8350_b_16.0.0_oneplus9rt \
             https://github.com/Chippa-a/android_kernel_oneplus_sm8350.git \
             kernel_source
 
-      # ========== 集成 SukiSU-Ultra ==========
       - name: Add SukiSU-Ultra
         run: |
           cd kernel_source
@@ -46,35 +44,15 @@ jobs:
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
-      # ========== 集成 SUSFS（杂鱼面具）==========
-      - name: Apply SUSFS patches
-        run: |
-          cd kernel_source
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b non-gki
-          cp susfs4ksu/kernel_patches/fs/* fs/
-          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
-          cd KernelSU
-          patch -p1 < ../susfs4ksu/KernelSU/0001-KernelSU-Integration.patch || true
-
-      # ========== 写入内核配置 ==========
       - name: Set kernel config
         run: |
           cd kernel_source
           DEFCONFIG=arch/arm64/configs/oneplus_martini_defconfig
-
           echo "CONFIG_KPROBES=y" >> $DEFCONFIG
           echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $DEFCONFIG
 
-      # ========== 编译内核 ==========
       - name: Build kernel
         run: |
           cd kernel_source
@@ -82,11 +60,9 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export PATH="/usr/lib/llvm-15/bin:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
-
           make O=out oneplus_martini_defconfig
           make O=out -j$(nproc) CC=clang Image.gz-dtb
 
-      # ========== 打包 AnyKernel3 ==========
       - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
@@ -98,7 +74,6 @@ jobs:
           cd AnyKernel3
           zip -r9 ../SukiSU-Ultra-9RT-$(date +%Y%m%d).zip * -x .git README.md
 
-      # ========== 上传成品 ==========
       - name: Upload kernel package
         uses: actions/upload-artifact@v4
         with:
