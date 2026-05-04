@@ -1,99 +1,74 @@
-name: Build OnePlus 9RT SukiSU Ultra
+name: Chippa-a - SM8350 - ColorOS 16
 
 on:
+  workflow_call:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-kernel:
+    name: Oneplus 9 RT - ${{ matrix.name }} - ${{ matrix.author }}
+    runs-on: ubuntu-latest # u can changed to ubuntu 22.04, and need container set ubuntu-latest
+    # container: ubuntu:bionic # if u need use arch linux -> archlinux/archlinux:latest or ubuntu 20.04 -> ubuntu:focal
+    strategy:
+      matrix:
+        include:
+          - name: "original"
+            author: "chippa-a"
+            device: "oneplus9rt-coloros16"
+            ksu: false
+      fail-fast: false
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
 
     steps:
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Remove useless tools
+        run: |
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
+      - name: Install necessary packages
+        run: |
+          sudo apt update
+          sudo apt install git python3 curl -y
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+      - name: Get build tools
+        run: |
+          cd $GITHUB_WORKSPACE
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          repo init -u https://github.com/JackA1ltman/android_kernel_manifest.git -b oneplus/sm8350_b_16.0.0_oneplus9rt
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
         with:
-          root-reserve-mb: 8192
-          temp-reserve-mb: 2048
-          swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
+          key: build-kernel
+          max-size: 2G
 
-      - name: Configure Git
+      - name: Build Kernel
         run: |
-          git config --global user.name "Builder"
-          git config --global user.email "builder@github.com"
-
-      - name: Install dependencies
-        run: |
-          sudo apt update && sudo apt upgrade -y
-          sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
-            gcc-aarch64-linux-gnu
-
-      - name: Clone kernel source
-        run: |
-          git clone --depth=1 -b oneplus/sm8350_u_14.0.0_oneplus9rt \
-            https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git \
-            kernel_source
-
-      - name: Add SukiSU-Ultra
-        run: |
-          cd kernel_source
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
-          cd ./KernelSU
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
-
-      - name: Set kernel config
-        run: |
-          cd kernel_source
-          DEFCONFIG=arch/arm64/configs/oneplus_martini_defconfig
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-
-      - name: Fix missing Kconfig
-        run: |
-          cd kernel_source
-          find . -name "Kconfig" -type f | while read kconfig_file; do
-            dir=$(dirname "$kconfig_file")
-            while IFS= read -r line; do
-              path=$(echo "$line" | sed -n 's/.*source "\([^"]*\)".*/\1/p')
-              if [ -n "$path" ]; then
-                full_path="$dir/$path"
-                if [ ! -f "$full_path" ]; then
-                  echo "Commenting out missing: $full_path"
-                  sed -i "s|^source \"${path}\"|# source \"${path}\"|" "$kconfig_file"
-                fi
-              fi
-            done < "$kconfig_file"
-          done
-
-      - name: Build kernel
-        run: |
-          cd kernel_source
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export PATH="/usr/lib/llvm-15/bin:$PATH"
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          make O=out oneplus_martini_defconfig
-          make O=out -j$(nproc) CC=clang Image.gz-dtb
-
-      - name: Package AnyKernel3
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
-          cp kernel_source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          sed -i "s/device.name1=.*/device.name1=martini/" AnyKernel3/anykernel.sh
-          sed -i "s/device.name2=.*/device.name2=MT2110/" AnyKernel3/anykernel.sh
-          sed -i "s/device.name3=.*/device.name3=MT2111/" AnyKernel3/anykernel.sh
-          sed -i "s/kernel.string=.*/kernel.string=SukiSU-Ultra-9RT/" AnyKernel3/anykernel.sh
-          cd AnyKernel3
-          zip -r9 ../SukiSU-Ultra-9RT-$(date +%Y%m%d).zip * -x .git README.md
-
-      - name: Upload kernel package
+          cd $GITHUB_WORKSPACE
+          repo sync --force-sync --no-clone-bundle --current-branch --no-tags -j$(nproc --all)
+          BUILD_CONFIG=kernel/msm-5.4/build.config.martini VARIANT=qgki LTO=thin BUILD_KERNEL=1 CC="ccache clang" KCFLAGS="-Wno-error=strict-prototypes -Wno-strict-prototypes" build/build.sh
+          mkdir need_file_oplus
+          mkdir need_file_qcom
+          mkdir need_modules
+          mkdir need_files
+          cp -f kernel/msm-5.4/out/msm-5.4-lahaina-qgki/arch/arm64/boot/dts/vendor/oplus/martini/* need_file_oplus/
+          cp kernel/msm-5.4/out/msm-5.4-lahaina-qgki/arch/arm64/boot/dts/vendor/qcom/* need_file_qcom/
+          cp kernel/msm-5.4/out/msm-5.4-lahaina-qgki/dist/Image need_files/Image
+          cp kernel/msm-5.4/out/msm-5.4-lahaina-qgki/dist/*.ko need_modules/
+      - name: Upload Build Artifacts For Anykernel3
         uses: actions/upload-artifact@v4
         with:
-          name: SukiSU-Ultra-OnePlus9RT
-          path: SukiSU-Ultra-9RT-*.zip
+          name: Kernel
+          path: |
+            need_file_oplus/
+            need_file_qcom/
+            need_modules/
+            need_files/
