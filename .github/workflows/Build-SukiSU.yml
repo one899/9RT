@@ -1,4 +1,4 @@
-name: Build OnePlus 9RT Official Kernel
+name: Build OnePlus 9RT SukiSU Ultra
 
 on:
   workflow_dispatch:
@@ -30,19 +30,38 @@ jobs:
           sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
             gcc-aarch64-linux-gnu
 
-      - name: Clone official kernel source
+      - name: Clone kernel source
         run: |
           git clone --depth=1 -b oneplus/sm8350_u_14.0.0_oneplus9rt \
             https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git \
             kernel_source
 
-      - name: Fix Clang 15+ compatibility
+      - name: Add SukiSU-Ultra
         run: |
           cd kernel_source
-          if ! grep -q "linux/types.h" arch/arm64/include/asm/atomic.h; then
-            sed -i '1i #include <linux/types.h>' arch/arm64/include/asm/atomic.h
-          fi
-          find . -name "Makefile" -exec sed -i 's/-Werror//g' {} + || true
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          cd ./KernelSU
+          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
+          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+
+      - name: Set kernel config
+        run: |
+          cd kernel_source
+          DEFCONFIG=arch/arm64/configs/oneplus_martini_defconfig
+          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
+          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
+          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+
+      - name: Fix missing Kconfig
+        run: |
+          cd kernel_source
+          sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|' init/Kconfig
+          sed -i 's|source "kernel/tuning/Kconfig"|# source "kernel/tuning/Kconfig"|' init/Kconfig
+          sed -i 's|source "kernel/uad/Kconfig"|# source "kernel/uad/Kconfig"|' init/Kconfig
+          sed -i 's|source "kernel/special_opt/Kconfig"|# source "kernel/special_opt/Kconfig"|' init/Kconfig
+          sed -i 's|source "arch/arm64/kernel/secureguard/Kconfig"|# source "arch/arm64/kernel/secureguard/Kconfig"|' arch/arm64/Kconfig
 
       - name: Build kernel
         run: |
@@ -52,7 +71,7 @@ jobs:
           export PATH="/usr/lib/llvm-15/bin:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out oneplus_martini_defconfig
-          make O=out -j4 CC=clang Image.gz-dtb
+          make O=out -j$(nproc) CC=clang Image.gz-dtb
 
       - name: Package AnyKernel3
         run: |
@@ -61,12 +80,12 @@ jobs:
           sed -i "s/device.name1=.*/device.name1=martini/" AnyKernel3/anykernel.sh
           sed -i "s/device.name2=.*/device.name2=MT2110/" AnyKernel3/anykernel.sh
           sed -i "s/device.name3=.*/device.name3=MT2111/" AnyKernel3/anykernel.sh
-          sed -i "s/kernel.string=.*/kernel.string=Official-9RT/" AnyKernel3/anykernel.sh
+          sed -i "s/kernel.string=.*/kernel.string=SukiSU-Ultra-9RT/" AnyKernel3/anykernel.sh
           cd AnyKernel3
-          zip -r9 ../Official-9RT-$(date +%Y%m%d).zip * -x .git README.md
+          zip -r9 ../SukiSU-Ultra-9RT-$(date +%Y%m%d).zip * -x .git README.md
 
       - name: Upload kernel package
         uses: actions/upload-artifact@v4
         with:
-          name: Official-OnePlus9RT
-          path: Official-9RT-*.zip
+          name: SukiSU-Ultra-OnePlus9RT
+          path: SukiSU-Ultra-9RT-*.zip
