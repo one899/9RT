@@ -58,6 +58,12 @@ jobs:
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
 
+      - name: Fix missing Kconfig
+        run: |
+          cd kernel_source
+          sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|' init/Kconfig
+          sed -i 's|source "kernel/tuning/Kconfig"|# source "kernel/tuning/Kconfig"|' init/Kconfig
+
       - name: Build kernel
         run: |
           cd kernel_source
