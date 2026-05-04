@@ -30,11 +30,15 @@ jobs:
           sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
             gcc-aarch64-linux-gnu
 
-      - name: Clone kernel source
+      - name: Clone kernel source and modules
         run: |
           git clone --depth=1 -b oneplus/sm8350_b_16.0.0_oneplus9rt \
             https://github.com/Chippa-a/android_kernel_oneplus_sm8350.git \
             kernel_source
+          git clone --depth=1 \
+            https://github.com/Chippa-a/android_kernel_modules_and_devicetree_oneplus_sm8350.git \
+            kernel_modules
+          cp -r kernel_modules/* kernel_source/
 
       - name: Add SukiSU-Ultra
         run: |
@@ -53,11 +57,6 @@ jobs:
           echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
-
-      - name: Fix missing Kconfig
-        run: |
-          cd kernel_source
-          sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|' init/Kconfig
 
       - name: Build kernel
         run: |
