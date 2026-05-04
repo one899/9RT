@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. 最大化构建空间
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -19,17 +20,20 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
+      # 2. 配置Git
       - name: Configure Git
         run: |
           git config --global user.name "Builder"
           git config --global user.email "builder@github.com"
 
+      # 3. 安装依赖
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
           sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
             gcc-aarch64-linux-gnu
 
+      # 4. 拉取内核源码及模块
       - name: Clone kernel source and modules
         run: |
           git clone --depth=1 -b oneplus/sm8350_b_16.0.0_oneplus9rt \
@@ -40,6 +44,7 @@ jobs:
             kernel_modules
           cp -r kernel_modules/* kernel_source/
 
+      # 5. 集成 SukiSU-Ultra
       - name: Add SukiSU-Ultra
         run: |
           cd kernel_source
@@ -49,6 +54,7 @@ jobs:
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
+      # 6. 设置内核配置
       - name: Set kernel config
         run: |
           cd kernel_source
@@ -57,7 +63,11 @@ jobs:
           echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
+          # 提前禁用模块签名
+          echo "CONFIG_MODULE_SIG=n" >> $DEFCONFIG
+          echo "CONFIG_MODULE_SIG_FORCE=n" >> $DEFCONFIG
 
+      # 7. 修复缺失的 Kconfig 引用
       - name: Fix missing Kconfig
         run: |
           cd kernel_source
@@ -75,6 +85,19 @@ jobs:
             done < "$kconfig_file"
           done
 
+      # 8. 修复 Clang 15+ 兼容性
+      - name: Fix Clang 15+ compatibility
+        run: |
+          cd kernel_source
+          # 修复 atomic64_t 类型未定义
+          sed -i '1i #include <linux/types.h>' arch/arm64/include/asm/atomic.h
+          # 修复 alternative 指令中的 alt_instr 未定义 (如果报错可忽略)
+          sed -i 's|struct alt_instr {|#include <asm/alternative.h>\nstruct alt_instr {|' arch/arm64/include/asm/alternative.h || true
+          # 移除 -Werror，防止警告变错误
+          sed -i 's/-Werror//g' Makefile
+          sed -i 's/-Werror//g' kernel/module/Makefile
+
+      # 9. 构建内核
       - name: Build kernel
         run: |
           cd kernel_source
@@ -83,8 +106,13 @@ jobs:
           export PATH="/usr/lib/llvm-15/bin:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out oneplus_martini_defconfig
-          make O=out -j$(nproc) CC=clang Image.gz-dtb
+          # 再次确认模块签名已禁用
+          sed -i 's|CONFIG_MODULE_SIG=y|CONFIG_MODULE_SIG=n|' out/.config
+          sed -i 's|CONFIG_MODULE_SIG_FORCE=y|CONFIG_MODULE_SIG_FORCE=n|' out/.config
+          # 使用 -j4 避免资源耗尽，并解除报错限制
+          make O=out -j4 CC=clang KCFLAGS="-Wno-error -ferror-limit=0" Image.gz-dtb
 
+      # 10. 打包 AnyKernel3
       - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
@@ -96,6 +124,7 @@ jobs:
           cd AnyKernel3
           zip -r9 ../SukiSU-Ultra-9RT-$(date +%Y%m%d).zip * -x .git README.md
 
+      # 11. 上传成品
       - name: Upload kernel package
         uses: actions/upload-artifact@v4
         with:
