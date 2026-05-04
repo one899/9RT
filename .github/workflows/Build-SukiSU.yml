@@ -1,4 +1,4 @@
-name: Build OnePlus 9RT SukiSU Ultra
+name: Build OnePlus 9RT Official Kernel
 
 on:
   workflow_dispatch:
@@ -8,7 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 最大化构建空间
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -20,84 +19,31 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
-      # 2. 配置Git
       - name: Configure Git
         run: |
           git config --global user.name "Builder"
           git config --global user.email "builder@github.com"
 
-      # 3. 安装依赖
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
           sudo apt install -y git curl flex bison build-essential libssl-dev bc python3 \
             gcc-aarch64-linux-gnu
 
-      # 4. 拉取内核源码及模块
-      - name: Clone kernel source and modules
+      - name: Clone official kernel source
         run: |
-          git clone --depth=1 -b oneplus/sm8350_b_16.0.0_oneplus9rt \
-            https://github.com/Chippa-a/android_kernel_oneplus_sm8350.git \
+          git clone --depth=1 -b oneplus/sm8350_u_14.0.0_oneplus9rt \
+            https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git \
             kernel_source
-          git clone --depth=1 \
-            https://github.com/Chippa-a/android_kernel_modules_and_devicetree_oneplus_sm8350.git \
-            kernel_modules
-          cp -r kernel_modules/* kernel_source/
 
-      # 5. 集成 SukiSU-Ultra
-      - name: Add SukiSU-Ultra
-        run: |
-          cd kernel_source
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
-          cd ./KernelSU
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
-
-      # 6. 设置内核配置
-      - name: Set kernel config
-        run: |
-          cd kernel_source
-          DEFCONFIG=arch/arm64/configs/oneplus_martini_defconfig
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          # 提前禁用模块签名
-          echo "CONFIG_MODULE_SIG=n" >> $DEFCONFIG
-          echo "CONFIG_MODULE_SIG_FORCE=n" >> $DEFCONFIG
-
-      # 7. 修复缺失的 Kconfig 引用
-      - name: Fix missing Kconfig
-        run: |
-          cd kernel_source
-          find . -name "Kconfig" -type f | while read kconfig_file; do
-            while IFS= read -r line; do
-              path=$(echo "$line" | sed -n 's/.*source "\([^"]*Kconfig\)".*/\1/p')
-              if [ -n "$path" ]; then
-                dir=$(dirname "$kconfig_file")
-                full_path="$dir/$path"
-                if [ ! -f "$full_path" ]; then
-                  echo "Commenting out missing: $full_path (in $kconfig_file)"
-                  sed -i "s|^source \"${path}\"|# source \"${path}\"|" "$kconfig_file"
-                fi
-              fi
-            done < "$kconfig_file"
-          done
-
-      # 8. 修复 Clang 15+ 兼容性
       - name: Fix Clang 15+ compatibility
         run: |
           cd kernel_source
-          # 修复 atomic64_t 类型未定义
-          sed -i '1i #include <linux/types.h>' arch/arm64/include/asm/atomic.h
-          # 修复 alternative 指令中的 alt_instr 未定义 (如果报错可忽略)
-          sed -i 's|struct alt_instr {|#include <asm/alternative.h>\nstruct alt_instr {|' arch/arm64/include/asm/alternative.h || true
-          # 移除 -Werror，防止警告变错误
-          sed -i 's/-Werror//g' Makefile
-          sed -i 's/-Werror//g' kernel/module/Makefile
+          if ! grep -q "linux/types.h" arch/arm64/include/asm/atomic.h; then
+            sed -i '1i #include <linux/types.h>' arch/arm64/include/asm/atomic.h
+          fi
+          find . -name "Makefile" -exec sed -i 's/-Werror//g' {} + || true
 
-      # 9. 构建内核
       - name: Build kernel
         run: |
           cd kernel_source
@@ -106,13 +52,8 @@ jobs:
           export PATH="/usr/lib/llvm-15/bin:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out oneplus_martini_defconfig
-          # 再次确认模块签名已禁用
-          sed -i 's|CONFIG_MODULE_SIG=y|CONFIG_MODULE_SIG=n|' out/.config
-          sed -i 's|CONFIG_MODULE_SIG_FORCE=y|CONFIG_MODULE_SIG_FORCE=n|' out/.config
-          # 使用 -j4 避免资源耗尽，并解除报错限制
-          make O=out -j4 CC=clang KCFLAGS="-Wno-error -ferror-limit=0" Image.gz-dtb
+          make O=out -j4 CC=clang Image.gz-dtb
 
-      # 10. 打包 AnyKernel3
       - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
@@ -120,13 +61,12 @@ jobs:
           sed -i "s/device.name1=.*/device.name1=martini/" AnyKernel3/anykernel.sh
           sed -i "s/device.name2=.*/device.name2=MT2110/" AnyKernel3/anykernel.sh
           sed -i "s/device.name3=.*/device.name3=MT2111/" AnyKernel3/anykernel.sh
-          sed -i "s/kernel.string=.*/kernel.string=SukiSU-Ultra-9RT/" AnyKernel3/anykernel.sh
+          sed -i "s/kernel.string=.*/kernel.string=Official-9RT/" AnyKernel3/anykernel.sh
           cd AnyKernel3
-          zip -r9 ../SukiSU-Ultra-9RT-$(date +%Y%m%d).zip * -x .git README.md
+          zip -r9 ../Official-9RT-$(date +%Y%m%d).zip * -x .git README.md
 
-      # 11. 上传成品
       - name: Upload kernel package
         uses: actions/upload-artifact@v4
         with:
-          name: SukiSU-Ultra-OnePlus9RT
-          path: SukiSU-Ultra-9RT-*.zip
+          name: Official-OnePlus9RT
+          path: Official-9RT-*.zip
